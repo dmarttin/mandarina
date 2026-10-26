@@ -88,7 +88,7 @@ enum PDFEngine {
         }
         guard let context = CGContext(data: nil, width: width, height: height,
                                       bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else {
             throw EngineError(message: "Cannot allocate a page context")
         }

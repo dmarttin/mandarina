@@ -9,6 +9,8 @@ struct LaunchOptions {
     var pick: String?
     var select: Int?
     var output: String?
+    var background: String?
+    var scale: Double?
 
     static func parse(_ raw: [String]) -> LaunchOptions {
         var options = LaunchOptions()
@@ -44,6 +46,12 @@ struct LaunchOptions {
                 index += 2
             case "--select":
                 options.select = value(1).flatMap(Int.init)
+                index += 2
+            case "--background":
+                options.background = value(1)
+                index += 2
+            case "--scale":
+                options.scale = value(1).flatMap(Double.init)
                 index += 2
             default:
                 options.paths.append(argument)
@@ -471,10 +479,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Composite over a desktop-like backdrop with Core Graphics, so the
         // translucent plate is judged against something, not white paper.
-        let scale: CGFloat = 2
+        let scale = CGFloat(options.scale ?? 2)
         let width = Int(size.width * scale)
         let height = Int(size.height * scale)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(data: nil, width: width, height: height,
                                       bitsPerComponent: 8, bytesPerRow: 0,
                                       space: colorSpace,
@@ -483,15 +491,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.terminate(nil)
             return
         }
-        let colors = [
-            NSColor(srgbRed: 0.15, green: 0.18, blue: 0.27, alpha: 1).cgColor,
-            NSColor(srgbRed: 0.34, green: 0.25, blue: 0.30, alpha: 1).cgColor
-        ] as CFArray
-        if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0, 1]) {
-            context.drawLinearGradient(gradient,
-                                       start: CGPoint(x: 0, y: height),
-                                       end: CGPoint(x: width, y: 0),
-                                       options: [])
+        if let hex = options.background, let solid = NSColor(hex: hex) {
+            context.setFillColor(solid.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        } else {
+            let colors = [
+                NSColor(srgbRed: 0.15, green: 0.18, blue: 0.27, alpha: 1).cgColor,
+                NSColor(srgbRed: 0.34, green: 0.25, blue: 0.30, alpha: 1).cgColor
+            ] as CFArray
+            if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0, 1]) {
+                context.drawLinearGradient(gradient,
+                                           start: CGPoint(x: 0, y: height),
+                                           end: CGPoint(x: width, y: 0),
+                                           options: [])
+            }
         }
         if let cgImage = rep.cgImage {
             context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))

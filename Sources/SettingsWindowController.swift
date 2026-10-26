@@ -54,7 +54,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let scale: CGFloat = 2
         let width = Int(view.bounds.width * scale)
         let height = Int(view.bounds.height * scale)
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(data: nil, width: width, height: height,
                                       bitsPerComponent: 8, bytesPerRow: 0,
                                       space: colorSpace,

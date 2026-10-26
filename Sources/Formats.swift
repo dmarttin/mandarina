@@ -14,12 +14,23 @@ struct FormatInfo {
         case "txt", "md": return "text.alignleft"
         case "html": return "globe"
         case "epub": return "book"
+        case "docx", "doc", "odt", "rtf": return "doc.text"
         case "csv", "xlsx", "xls", "ods": return "tablecells"
         case "pptx", "ppt", "odp": return "rectangle.on.rectangle"
         case "gif": return "photo.stack"
         case "mp4", "mov", "webm", "mkv", "avi", "wmv": return "film"
         case "mp3", "m4a", "wav", "flac", "aac", "ogg", "opus", "aiff", "wma": return "waveform"
-        default: return "photo"
+        default:
+            // Fall back on the category, so a new format still gets a sane glyph.
+            switch category {
+            case "document": return "doc.text"
+            case "spreadsheet": return "tablecells"
+            case "presentation": return "rectangle.on.rectangle"
+            case "video": return "film"
+            case "audio": return "waveform"
+            case "pdf": return "doc.richtext"
+            default: return "photo"
+            }
         }
     }
 }
