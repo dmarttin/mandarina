@@ -85,6 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Toast.shared.show(text)
             }
         }
+        wheel.onProgress = { text in
+            Toast.shared.update(text)
+        }
 
         let options = LaunchOptions.parse(Array(CommandLine.arguments.dropFirst()))
         if let action = options.action {
@@ -344,6 +347,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func runSimulation(_ options: LaunchOptions) {
         interactive = false
+        wheel.onProgress = { text in
+            print("progress: \(text)")
+        }
         wheel.onStatus = { text in
             print("status: \(text)")
             // Progress messages keep the hook alive; anything else is a result.
@@ -357,12 +363,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if let target = options.pick {
             var steps = 0
+            var found = false
             while steps < 14 {
                 guard let item = wheel.currentItem else { break }
                 if item.id.lowercased() == target.lowercased()
-                    || item.title.lowercased() == target.lowercased() { break }
+                    || item.title.lowercased() == target.lowercased() {
+                    found = true
+                    break
+                }
                 _ = wheel.handleKey(124)
                 steps += 1
+            }
+            guard found else {
+                print("simulate: \(target) is not offered by this wheel")
+                exit(1)
             }
             print("simulate: selected \(wheel.currentItem?.id ?? "none") after \(steps) steps")
         }

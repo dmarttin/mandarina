@@ -107,18 +107,28 @@ struct FileKind {
         self.ext = ext.lowercased()
     }
 
+    /// The normalised format id, so `jpg`, `jpeg` and `jfif` agree.
     var format: String? { Formats.id(forExtension: ext) }
 
-    var isImage: Bool {
-        ["jpeg", "png", "webp", "heic", "avif", "tiff", "gif", "bmp", "ico", "tga", "ppm", "qoi", "exr", "svg", "psd"]
-            .contains(ext)
+    private var category: String? {
+        format.map { Formats.info($0).category }
     }
-    var isVideo: Bool { ["mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv"].contains(ext) }
-    var isAudio: Bool { ["mp3", "m4a", "m4r", "wav", "flac", "aac", "ogg", "oga", "opus", "aiff", "aif", "caf", "wma"].contains(ext) }
-    var isPDF: Bool { ext == "pdf" }
-    var isDocument: Bool { ["docx", "doc", "odt", "rtf", "txt", "text", "md", "markdown", "html", "htm", "epub", "pages"].contains(ext) }
-    var isSpreadsheet: Bool { ["xlsx", "xls", "ods", "csv", "tsv", "numbers"].contains(ext) }
-    var isPresentation: Bool { ["pptx", "ppt", "odp", "key"].contains(ext) }
+
+    var isImage: Bool {
+        category == "image" || ["exr", "psd"].contains(ext)
+    }
+    var isVideo: Bool { category == "video" }
+    var isAudio: Bool { category == "audio" }
+    var isPDF: Bool { category == "pdf" || ext == "pdf" }
+    var isDocument: Bool {
+        category == "document" || ["pages"].contains(ext)
+    }
+    var isSpreadsheet: Bool {
+        category == "spreadsheet" || ["numbers"].contains(ext)
+    }
+    var isPresentation: Bool {
+        category == "presentation" || ["key"].contains(ext)
+    }
 
     var isOffice: Bool { isDocument || isSpreadsheet || isPresentation }
 

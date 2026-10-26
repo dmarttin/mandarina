@@ -21,6 +21,11 @@ cursor. Move to a wedge and let go.
 Keys are configurable, and the wheel stays open after you release the
 modifier, until you drop the file or move back to the centre.
 
+Long jobs report progress in the floating confirmation. When no engine can go
+straight from one format to another, Mandarina routes through an intermediate
+one: a deck becomes a PNG through PDF, a spreadsheet becomes a JPEG the same
+way.
+
 ## Requirements
 
 Mandarina is a front end. The heavy lifting is done by two tools you install
@@ -129,7 +134,7 @@ Bump `VERSION` and tag the same number.
 | `Sources/WheelController.swift` | Panel lifetime, items per mode, applies the choice |
 | `Sources/WheelView.swift` | Draws the ring, mode pills, angle to segment |
 | `Sources/WheelModel.swift` | What each wheel offers and in what order |
-| `Sources/Engine.swift` | Routes a file and a target to the right engine |
+| `Sources/Engine.swift` | Routes a file and a target to the right engine, including one intermediate hop |
 | `Sources/Formats.swift` | Format table and file kinds |
 | `Sources/Toolchain.swift` | Finds ffmpeg, LibreOffice and cwebp; probes encoders |
 | `Sources/ImageEngine.swift` | `sips` and ImageIO |
@@ -154,8 +159,10 @@ Two details worth knowing:
 - Builds are not notarized: the first launch needs the Gatekeeper step above.
 - Video and documents need ffmpeg and LibreOffice. Without them those targets
   are hidden rather than offered and failing.
-- Multi-hop routes are not implemented: a document goes to PDF, not straight to
-  PNG.
+- Routes stop at one intermediate format. Two is enough for everything the
+  wheel offers, but it is not a general graph.
+- WebP needs an ffmpeg built with libwebp, or cwebp. Otherwise the format does
+  not appear.
 - During a drag the panel cannot become key, so arrow keys and `Enter` only work
   in the wheel opened from the menu bar.
 - Apple silicon only.

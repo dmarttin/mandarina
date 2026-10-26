@@ -8,7 +8,9 @@ enum PDFEngine {
     static var available: Bool { true }
 
     static func render(_ input: URL, to format: String, dpi: Int,
-                       firstPageOnly: Bool, suffix: String?) throws -> [URL] {
+                       firstPageOnly: Bool, suffix: String?,
+                       nameSource: URL? = nil,
+                       progress: ((Double) -> Void)? = nil) throws -> [URL] {
         guard let document = PDFDocument(url: input) else {
             throw EngineError(message: "Cannot open \(input.lastPathComponent)")
         }
@@ -16,20 +18,22 @@ enum PDFEngine {
             throw EngineError(message: "\(input.lastPathComponent) has no pages")
         }
         let indexes = firstPageOnly ? [0] : Array(0..<document.pageCount)
+        let naming = nameSource ?? input
         var written: [URL] = []
         for (position, index) in indexes.enumerated() {
             guard let page = document.page(at: index) else { continue }
             let destination: URL
             if position == 0 {
-                destination = Paths.destination(for: input, format: format, suffix: suffix)
+                destination = Paths.destination(for: naming, format: format, suffix: suffix)
             } else {
-                let base = input.deletingPathExtension().lastPathComponent
-                let directory = input.deletingLastPathComponent()
+                let base = naming.deletingPathExtension().lastPathComponent
+                let directory = naming.deletingLastPathComponent()
                 destination = Paths.unique(directory.appendingPathComponent(
                     "\(base)\(suffix ?? "")-\(index + 1).\(Formats.fileExtension(for: format))"))
             }
             try draw(page, to: destination, format: format, dpi: dpi)
             written.append(destination)
+            progress?(Double(position + 1) / Double(indexes.count))
         }
         guard !written.isEmpty else {
             throw EngineError(message: "Nothing was rendered")
@@ -56,8 +60,7 @@ enum PDFEngine {
     static func imagesToPDF(_ inputs: [URL], destination: URL) throws -> URL {
         let document = PDFDocument()
         for input in inputs {
-            guard let source = CGImageSourceCreateWithURL(input as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            guard let image = ImageEngine.orientedImage(from: input) else {
                 throw EngineError(message: "Cannot read \(input.lastPathComponent)")
             }
             guard let page = PDFPage(image: NSImage(cgImage: image,

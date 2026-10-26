@@ -28,6 +28,8 @@ final class WheelController {
     private(set) var isOpen = false
 
     var onStatus: ((String) -> Void)?
+    /// Live progress for the one or two jobs slow enough to need it.
+    var onProgress: ((String) -> Void)?
 
     var currentItem: WheelItem? {
         (panel?.contentView as? WheelView)?.selectedItem()
@@ -168,12 +170,23 @@ final class WheelController {
         }
         guard let action = item.action else { return }
 
-        onStatus?(item.kind == .conversion
+        let label = item.kind == .conversion
             ? "Converting to \(item.title)…"
-            : "Applying \(item.title)…")
+            : "Applying \(item.title)…"
+        onStatus?(label)
         Log.write("apply: \(item.id) on \(targets.count) file(s)")
 
-        Engine.run(action, suffix: item.suffix, files: targets) { [weak self] ok, written, message in
+        var lastPercent = -1
+        let progress: (Double) -> Void = { fraction in
+            let percent = Int((fraction * 100).rounded())
+            guard percent > 0, percent < 100, percent != lastPercent else { return }
+            lastPercent = percent
+            DispatchQueue.main.async {
+                self.onProgress?("\(label) \(percent)%")
+            }
+        }
+
+        Engine.run(action, suffix: item.suffix, files: targets, progress: progress) { [weak self] ok, written, message in
             guard let self else { return }
             if ok {
                 let names = written.map(\.lastPathComponent)

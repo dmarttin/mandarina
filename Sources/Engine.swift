@@ -53,14 +53,13 @@ enum Paths {
 }
 
 enum Engine {
-    // MARK: - Targets
+    // MARK: - What the wheel offers
 
-    /// What this Mac can actually do with the file, decided by the engines that
-    /// are installed right now.
     static func targets(for url: URL) -> [Target] {
         let kind = FileKind(ext: url.pathExtension)
+        guard let start = kind.format else { return [] }
         return candidateIDs(for: kind)
-            .filter { canConvert(from: kind, to: $0) }
+            .filter { $0 != start && reachable(from: start, to: $0) }
             .map { id in
                 let info = Formats.info(id)
                 return Target(id: id, title: info.name, detail: kind.label,
@@ -134,15 +133,47 @@ enum Engine {
             return ["png", "jpeg", "txt"]
         }
         if kind.isSpreadsheet {
-            return ["pdf", "xlsx", "xls", "ods", "csv"]
+            return ["pdf", "xlsx", "xls", "ods", "csv", "png", "jpeg"]
         }
         if kind.isPresentation {
-            return ["pdf", "pptx", "ppt", "odp"]
+            return ["pdf", "pptx", "ppt", "odp", "png", "jpeg"]
         }
         if kind.isDocument {
-            return ["pdf", "docx", "doc", "odt", "rtf", "txt", "html", "epub"]
+            return ["pdf", "docx", "doc", "odt", "rtf", "txt", "html", "epub", "png", "jpeg"]
         }
         return []
+    }
+
+    // MARK: - Routes
+
+    /// Direct when an engine can do it, otherwise one intermediate format.
+    /// `document.pdf` is what lets a deck become a PNG.
+    static func reachable(from start: String, to goal: String) -> Bool {
+        if canConvert(from: FileKind(ext: Formats.fileExtension(for: start)), to: goal) {
+            return true
+        }
+        return path(from: start, to: goal) != nil
+    }
+
+    static func path(from start: String, to goal: String, maxHops: Int = 2) -> [String]? {
+        guard start != goal else { return [start] }
+        var queue: [[String]] = [[start]]
+        var seen: Set<String> = [start]
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            guard let tail = current.last, current.count <= maxHops else { continue }
+            for next in neighbours(of: tail) where !seen.contains(next) {
+                if next == goal { return current + [next] }
+                seen.insert(next)
+                queue.append(current + [next])
+            }
+        }
+        return nil
+    }
+
+    private static func neighbours(of format: String) -> [String] {
+        let kind = FileKind(ext: Formats.fileExtension(for: format))
+        return Formats.all.map(\.id).filter { canConvert(from: kind, to: $0) }
     }
 
     static func canConvert(from kind: FileKind, to format: String) -> Bool {
@@ -174,13 +205,19 @@ enum Engine {
     // MARK: - Running
 
     static func run(_ action: EngineAction, suffix: String?, files: [URL],
+                    progress: ((Double) -> Void)? = nil,
                     completion: @escaping (Bool, [URL], String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             var written: [URL] = []
             var failure: String?
-            for file in files {
+            for (index, file) in files.enumerated() {
+                let share: (Double) -> Void = { fraction in
+                    guard let progress, !files.isEmpty else { return }
+                    let base = Double(index) / Double(files.count)
+                    progress(base + fraction / Double(files.count))
+                }
                 do {
-                    written += try perform(action, on: file, suffix: suffix)
+                    written += try perform(action, on: file, suffix: suffix, progress: share)
                 } catch let error as EngineError {
                     failure = error.message
                     break
@@ -201,11 +238,12 @@ enum Engine {
         }
     }
 
-    private static func perform(_ action: EngineAction, on input: URL, suffix: String?) throws -> [URL] {
+    private static func perform(_ action: EngineAction, on input: URL, suffix: String?,
+                                progress: @escaping (Double) -> Void) throws -> [URL] {
         let kind = FileKind(ext: input.pathExtension)
         switch action {
         case .convert(let format):
-            return try convert(input, kind: kind, to: format, suffix: suffix)
+            return try convert(input, kind: kind, to: format, suffix: suffix, progress: progress)
 
         case .compressImage(let quality):
             let format = kind.format ?? "jpeg"
@@ -227,7 +265,8 @@ enum Engine {
 
         case .compressVideo(let height):
             let destination = Paths.destination(for: input, format: "mp4", suffix: suffix)
-            return [try FFmpegEngine.compressVideo(input, height: height, destination: destination)]
+            return [try FFmpegEngine.compressVideo(input, height: height, destination: destination,
+                                                   progress: progress)]
 
         case .muteVideo:
             let format = kind.isVideo ? (kind.format ?? "mp4") : "mp4"
@@ -240,48 +279,95 @@ enum Engine {
 
         case .extractAudio(let format):
             let destination = Paths.destination(for: input, format: format)
-            return [try FFmpegEngine.audio(input, to: format, destination: destination)]
+            progress(0)
+            return [try FFmpegEngine.audio(input, to: format, destination: destination,
+                                           progress: progress)]
 
         case .pdfToImages(let format, let dpi, let firstOnly):
             return try PDFEngine.render(input, to: format, dpi: dpi,
-                                        firstPageOnly: firstOnly, suffix: suffix)
+                                        firstPageOnly: firstOnly, suffix: suffix,
+                                        progress: progress)
 
         case .pdfToText:
             return [try PDFEngine.text(input, destination: Paths.destination(for: input, format: "txt"))]
         }
     }
 
-    private static func convert(_ input: URL, kind: FileKind, to format: String, suffix: String?) throws -> [URL] {
+    private static func convert(_ input: URL, kind: FileKind, to format: String,
+                                suffix: String?, progress: @escaping (Double) -> Void) throws -> [URL] {
+        if canConvert(from: kind, to: format) {
+            return try direct(input, kind: kind, to: format,
+                              destination: Paths.destination(for: input, format: format, suffix: suffix),
+                              nameSource: input, progress: progress)
+        }
+        guard let start = kind.format, let steps = path(from: start, to: format) else {
+            throw EngineError(message: "No route from \(kind.label) to \(format)")
+        }
+        return try chain(input, kind: kind, steps: steps, suffix: suffix, progress: progress)
+    }
+
+    /// Runs one format conversion with the destination already decided.
+    private static func direct(_ input: URL, kind: FileKind, to format: String,
+                               destination: URL, nameSource: URL,
+                               progress: @escaping (Double) -> Void) throws -> [URL] {
         if format == "pdf", kind.isImage {
-            return [try PDFEngine.imagesToPDF([input],
-                                              destination: Paths.destination(for: input, format: "pdf", suffix: suffix))]
+            return [try PDFEngine.imagesToPDF([input], destination: destination)]
         }
         if kind.isPDF {
             if format == "txt" {
-                return [try PDFEngine.text(input, destination: Paths.destination(for: input, format: "txt", suffix: suffix))]
+                return [try PDFEngine.text(input, destination: destination)]
             }
-            return try PDFEngine.render(input, to: format, dpi: 150, firstPageOnly: false, suffix: suffix)
+            return try PDFEngine.render(input, to: format, dpi: 150, firstPageOnly: false,
+                                        suffix: nil, nameSource: nameSource, progress: progress)
         }
         if kind.isOffice {
-            let destination = Paths.destination(for: input, format: format, suffix: suffix)
             return [try OfficeEngine.convert(input, to: format, destination: destination)]
         }
         if kind.isVideo || kind.isAudio {
-            let destination = Paths.destination(for: input, format: format, suffix: suffix)
-            if ["gif"].contains(format) {
+            if format == "gif" {
                 return [try FFmpegEngine.toGIF(input, destination: destination)]
             }
             if ["mp3", "m4a", "wav", "flac", "aac", "ogg", "opus", "aiff"].contains(format) {
-                return [try FFmpegEngine.audio(input, to: format, destination: destination)]
+                return [try FFmpegEngine.audio(input, to: format, destination: destination,
+                                               progress: progress)]
             }
-            return [try FFmpegEngine.video(input, to: format, destination: destination)]
+            return [try FFmpegEngine.video(input, to: format, destination: destination,
+                                           progress: progress)]
         }
-        // Images to anything else.
-        let destination = Paths.destination(for: input, format: format, suffix: suffix)
         if ImageEngine.canWrite(format) {
             return [try ImageEngine.convert(input, to: format, destination: destination,
                                             quality: nil, maxEdge: nil, flatten: false)]
         }
         return [try FFmpegEngine.image(input, to: format, destination: destination, quality: nil)]
+    }
+
+    /// Two hops through a temporary directory, for example a deck to PDF to PNG.
+    private static func chain(_ input: URL, kind: FileKind, steps: [String],
+                              suffix: String?, progress: @escaping (Double) -> Void) throws -> [URL] {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mandarina-chain-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        var current = input
+        var currentKind = kind
+        for (index, step) in steps.enumerated() {
+            let isLast = index == steps.count - 1
+            let destination = isLast
+                ? Paths.destination(for: input, format: step, suffix: suffix)
+                : workspace.appendingPathComponent("\(index).\(Formats.fileExtension(for: step))")
+            let share: (Double) -> Void = { fraction in
+                progress((Double(index) + fraction) / Double(steps.count))
+            }
+            let outputs = try direct(current, kind: currentKind, to: step,
+                                     destination: destination, nameSource: input, progress: share)
+            guard isLast == false else { return outputs }
+            guard let next = outputs.first else {
+                throw EngineError(message: "The \(step) step wrote nothing")
+            }
+            current = next
+            currentKind = FileKind(ext: Formats.fileExtension(for: step))
+        }
+        return []
     }
 }

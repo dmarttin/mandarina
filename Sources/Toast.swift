@@ -9,6 +9,26 @@ final class Toast {
     private var label: NSTextField?
     private var pendingHide: DispatchWorkItem?
 
+    /// Keeps the panel alive while a long job reports progress. Without this,
+    /// the confirmation would disappear before the conversion finished.
+    func update(_ text: String) {
+        guard let panel, let label else {
+            show(text)
+            return
+        }
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .medium)
+        let width = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 34
+        let size = NSSize(width: max(120, width), height: 32)
+        let anchor = NSPoint(x: panel.frame.midX, y: panel.frame.maxY + 24)
+        panel.setContentSize(size)
+        panel.setFrameOrigin(NSPoint(x: anchor.x - size.width / 2, y: anchor.y - size.height))
+        label.stringValue = text
+        label.frame = NSRect(x: 0, y: 6, width: size.width, height: 20)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        scheduleHide()
+    }
+
     func show(_ text: String, near point: NSPoint? = nil) {
         Log.write("toast: \(text)")
         let anchor = point ?? NSEvent.mouseLocation
@@ -30,6 +50,10 @@ final class Toast {
         panel.alphaValue = 1
         panel.orderFrontRegardless()
 
+        scheduleHide()
+    }
+
+    private func scheduleHide() {
         pendingHide?.cancel()
         let hide = DispatchWorkItem { [weak self] in
             NSAnimationContext.runAnimationGroup({ context in

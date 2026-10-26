@@ -121,6 +121,59 @@ enum Toolchain {
         return nil
     }
 
+    /// Runs a tool and hands back its standard output line by line, for jobs
+    /// that report progress while they work.
+    @discardableResult
+    static func stream(_ tool: URL, _ arguments: [String],
+                       onLine: @escaping (String) -> Void,
+                       onExit: @escaping (Int32) -> Void) -> Process? {
+        let process = Process()
+        process.executableURL = tool
+        process.arguments = arguments
+        let out = Pipe()
+        let err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+
+        let handle = out.fileHandleForReading
+        let lock = NSLock()
+        var buffer = Data()
+        handle.readabilityHandler = { readable in
+            let chunk = readable.availableData
+            guard !chunk.isEmpty else {
+                readable.readabilityHandler = nil
+                return
+            }
+            lock.lock()
+            buffer.append(chunk)
+            var lines: [String] = []
+            while let index = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<index]
+                buffer.removeSubrange(buffer.startIndex...index)
+                lines.append(String(decoding: line, as: UTF8.self))
+            }
+            lock.unlock()
+            for line in lines { onLine(line) }
+        }
+        process.terminationHandler = { finished in
+            handle.readabilityHandler = nil
+            let remaining = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            if !remaining.isEmpty {
+                Log.write("stream \(tool.lastPathComponent): \(remaining.suffix(200))")
+            }
+            onExit(finished.terminationStatus)
+        }
+        do {
+            try process.run()
+        } catch {
+            Log.write("stream \(tool.lastPathComponent): \(error.localizedDescription)")
+            handle.readabilityHandler = nil
+            onExit(-1)
+            return nil
+        }
+        return process
+    }
+
     static func run(_ tool: URL, _ arguments: [String], timeout: TimeInterval? = nil) -> ToolResult? {
         let process = Process()
         process.executableURL = tool

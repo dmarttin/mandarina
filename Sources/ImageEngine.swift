@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -43,10 +44,23 @@ enum ImageEngine {
         format == "jpeg" ? "jpeg" : format
     }
 
+    /// Loads the first frame with the EXIF orientation already applied. A
+    /// photo taken sideways must not come out sideways after flattening.
+    static func orientedImage(from input: URL) -> CGImage? {
+        let options: [CIImageOption: Any] = [.applyOrientationProperty: true]
+        if let ciImage = CIImage(contentsOf: input, options: options) {
+            let context = CIContext(options: [.useSoftwareRenderer: false])
+            if let image = context.createCGImage(ciImage, from: ciImage.extent) {
+                return image
+            }
+        }
+        guard let source = CGImageSourceCreateWithURL(input as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
     /// Flattens transparency onto white, for tools that need an opaque image.
     static func flattened(_ input: URL) throws -> URL {
-        guard let source = CGImageSourceCreateWithURL(input as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        guard let image = orientedImage(from: input) else {
             throw EngineError(message: "Cannot read \(input.lastPathComponent)")
         }
         let width = image.width

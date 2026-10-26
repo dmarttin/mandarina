@@ -39,15 +39,17 @@ enum FFmpegEngine {
 
     // MARK: - Conversions
 
-    static func video(_ input: URL, to format: String, destination: URL) throws -> URL {
+    static func video(_ input: URL, to format: String, destination: URL,
+                      progress: ((Double) -> Void)? = nil) throws -> URL {
         var arguments = ["-i", input.path]
-        arguments += videoArguments(format)
-        arguments += ["-pix_fmt", "yuv420p", destination.path]
-        try run(arguments, expecting: destination)
+        arguments += videoArguments(format, input: input)
+        arguments += ["-pix_fmt", pixelFormat(for: input, target: format), destination.path]
+        try run(arguments, expecting: destination, duration: duration(of: input), progress: progress)
         return destination
     }
 
-    static func audio(_ input: URL, to format: String, destination: URL) throws -> URL {
+    static func audio(_ input: URL, to format: String, destination: URL,
+                      progress: ((Double) -> Void)? = nil) throws -> URL {
         if hasAudio(input) == false {
             throw EngineError(message: "That file has no audio track")
         }
@@ -60,7 +62,7 @@ enum FFmpegEngine {
             arguments += ["-movflags", "+faststart"]
         }
         arguments += [destination.path]
-        try run(arguments, expecting: destination)
+        try run(arguments, expecting: destination, duration: duration(of: input), progress: progress)
         return destination
     }
 
@@ -93,16 +95,17 @@ enum FFmpegEngine {
         return destination
     }
 
-    static func compressVideo(_ input: URL, height: Int, destination: URL) throws -> URL {
+    static func compressVideo(_ input: URL, height: Int, destination: URL,
+                              progress: ((Double) -> Void)? = nil) throws -> URL {
         let arguments = [
             "-i", input.path,
             "-vf", "scale=-2:\(height)",
             "-c:v", "libx264", "-crf", "26", "-preset", "veryfast",
             "-c:a", "aac", "-b:a", "160k",
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", pixelFormat(for: input, target: "mp4"),
             destination.path
         ]
-        try run(arguments, expecting: destination)
+        try run(arguments, expecting: destination, duration: duration(of: input), progress: progress)
         return destination
     }
 
@@ -115,9 +118,9 @@ enum FFmpegEngine {
             return destination
         }
         var arguments = ["-i", input.path, "-an"]
-        arguments += videoArguments(format.isEmpty ? "mp4" : format)
-        arguments += ["-pix_fmt", "yuv420p", destination.path]
-        try run(arguments, expecting: destination)
+        arguments += videoArguments(format.isEmpty ? "mp4" : format, input: input)
+        arguments += ["-pix_fmt", pixelFormat(for: input, target: format), destination.path]
+        try run(arguments, expecting: destination, duration: duration(of: input))
         return destination
     }
 
@@ -135,9 +138,51 @@ enum FFmpegEngine {
         return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    // MARK: - Probes
+
+    /// Length in seconds, for a progress fraction. Nil when ffprobe cannot say.
+    static func duration(of input: URL) -> Double? {
+        guard let ffprobe = Toolchain.ffprobe else { return nil }
+        let result = Toolchain.run(ffprobe, [
+            "-v", "error", "-show_entries", "format=duration",
+            "-of", "csv=p=0", input.path
+        ])
+        guard let result, result.ok,
+              let value = Double(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value > 0 else { return nil }
+        return value
+    }
+
+    /// Ten-bit sources keep their depth where the target can carry it, so HDR
+    /// video does not come out crushed and colour-shifted.
+    static func pixelFormat(for input: URL, target: String) -> String {
+        guard let ffprobe = Toolchain.ffprobe, ["mp4", "mov", "mkv"].contains(target) else {
+            return "yuv420p"
+        }
+        let result = Toolchain.run(ffprobe, [
+            "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=pix_fmt",
+            "-of", "csv=p=0", input.path
+        ])
+        let raw = result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let deep = raw.contains("10le") || raw.contains("12le") || raw.contains("p010")
+        guard deep, Toolchain.has(encoder: "libx265") else { return "yuv420p" }
+        return "yuv420p10le"
+    }
+
     // MARK: - Argument tables
 
-    private static func videoArguments(_ format: String) -> [String] {
+    private static func videoArguments(_ format: String, input: URL) -> [String] {
+        // H.264 has no 10-bit encoder in these builds, so deep sources go HEVC.
+        let deep = pixelFormat(for: input, target: format) == "yuv420p10le"
+        if deep, ["mp4", "mov", "mkv"].contains(format) {
+            var arguments = ["-c:v", "libx265", "-crf", "20", "-preset", "fast",
+                             "-c:a", "aac", "-b:a", "192k"]
+            if format == "mp4" {
+                arguments += ["-tag:v", "hvc1", "-movflags", "+faststart"]
+            }
+            return arguments
+        }
         switch format {
         case "mp4":
             return ["-c:v", "libx264", "-crf", "20", "-preset", "veryfast",
@@ -179,10 +224,41 @@ enum FFmpegEngine {
 
     private static let base = ["-y", "-hide_banner", "-loglevel", "error"]
 
-    private static func run(_ arguments: [String], expecting destination: URL) throws {
+    private static func run(_ arguments: [String], expecting destination: URL,
+                            duration: Double? = nil,
+                            progress: ((Double) -> Void)? = nil) throws {
         guard Toolchain.ffmpeg != nil else {
             throw EngineError(message: "ffmpeg is not installed")
         }
+
+        if let progress, let duration, duration > 1 {
+            var status: Int32 = -1
+            let done = DispatchSemaphore(value: 0)
+            Toolchain.stream(ffmpeg, base + ["-progress", "pipe:1", "-nostats"] + arguments,
+                             onLine: { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                let value: String?
+                if trimmed.hasPrefix("out_time_us=") {
+                    value = String(trimmed.dropFirst("out_time_us=".count))
+                } else if trimmed.hasPrefix("out_time_ms=") {
+                    value = String(trimmed.dropFirst("out_time_ms=".count))
+                } else {
+                    value = nil
+                }
+                guard let value, let micros = Double(value), micros > 0 else { return }
+                progress(min(0.99, micros / 1_000_000 / duration))
+            }, onExit: { code in
+                status = code
+                done.signal()
+            })
+            done.wait()
+            guard status == 0, FileManager.default.fileExists(atPath: destination.path) else {
+                throw EngineError(message: "ffmpeg failed on \(destination.lastPathComponent)")
+            }
+            progress(1)
+            return
+        }
+
         let result = Toolchain.run(ffmpeg, base + arguments)
         guard result?.ok == true, FileManager.default.fileExists(atPath: destination.path) else {
             let detail = result?.stderr.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
