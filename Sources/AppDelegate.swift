@@ -388,8 +388,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var failures = 0
         for index in items.indices {
             let angle = Double.pi / 2 + Double(index) * per
-            let point = NSPoint(x: center.x + cos(angle) * midRadius,
-                                y: center.y + sin(angle) * midRadius)
+            // Spell out the CGFloat conversions: cos(Double) and cos(CGFloat)
+            // are both visible, and older Swift cannot pick between them.
+            let point = NSPoint(x: center.x + CGFloat(cos(angle)) * midRadius,
+                                y: center.y + CGFloat(sin(angle)) * midRadius)
             let got = view.index(at: point)
             let ok = got == index
             if !ok { failures += 1 }
