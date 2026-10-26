@@ -346,8 +346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         interactive = false
         wheel.onStatus = { text in
             print("status: \(text)")
-            if text.hasPrefix("Saved") || text.contains("failed")
-                || text.contains("unavailable") || text.contains("copied") {
+            // Progress messages keep the hook alive; anything else is a result.
+            if !text.hasPrefix("Converting") && !text.hasPrefix("Applying") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
             }
         }
@@ -377,7 +377,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Proves the pointer-to-wedge maths: every wedge centre must map back to
     /// its own index, and the hub must map to nothing.
     private func runHitTest(_ options: LaunchOptions) {
-        Convt.loadFormatsIfNeeded()
         let size = WheelController.size
         let view = WheelView(frame: NSRect(origin: .zero, size: size))
         let items = WheelCatalog.items(mode: options.wheelMode, files: options.files)
@@ -436,7 +435,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func runRender(_ options: LaunchOptions) {
-        Convt.loadFormatsIfNeeded()
         let size = WheelController.size
         let view = WheelView(frame: NSRect(origin: .zero, size: size))
         let items = WheelCatalog.items(mode: options.wheelMode, files: options.files)

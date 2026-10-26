@@ -1,8 +1,7 @@
 # Mandarina
 
 Drag a file, tap a key, drop it on a format. A radial menu for converting
-files on your Mac, powered by [convt](https://github.com/opencoredev/convt).
-Nothing is uploaded.
+files on your Mac, with your own engines and nothing uploaded.
 
 ![The conversion wheel](docs/wheel.jpg)
 
@@ -13,7 +12,7 @@ cursor. Move to a wedge and let go.
 
 | Key | Wheel | Offers |
 | --- | --- | --- |
-| `⇧` | Convert | The formats convt can reach from that file |
+| `⇧` | Convert | The formats this Mac can reach from that file |
 | `⌘` | Tools | Compress, resize, thumbnail, flatten, mute, audio only, GIF, first page, 300 DPI, plain text |
 | `⌃` | Actions | Copy path, copy file, reveal, terminal, AirDrop, ZIP |
 
@@ -24,15 +23,25 @@ modifier, until you drop the file or move back to the centre.
 
 ## Requirements
 
-- macOS 13 or later, Apple silicon.
-- **[convt](https://github.com/opencoredev/convt)** on the machine. Mandarina
-  is a front end: all conversion happens in convt's engines (FFmpeg, PDFium,
-  LibreOffice, image, resvg). A packaged convt starts a 7 day trial; building
-  it from source is unrestricted.
-- **LibreOffice** if you want documents, spreadsheets and slides. convt uses it
-  for those, and its macOS build does not bundle a document pack.
+Mandarina is a front end. The heavy lifting is done by two tools you install
+once, which keeps the app at 400 KB instead of a second copy of FFmpeg.
 
-Mandarina checks for convt in `/Applications/convt.app`, Homebrew and `PATH`.
+- macOS 13 or later, Apple silicon.
+- **ffmpeg** for video, audio and a few image formats:
+  `brew install ffmpeg`
+- **LibreOffice** for documents, spreadsheets and slides:
+  `brew install --cask libreoffice`
+
+Everything else uses what macOS already ships: ImageIO and `sips` for images,
+PDFKit for PDFs, CoreAudio for audio.
+
+**WebP** is the one format that depends on your ffmpeg build. If it was built
+without `libwebp`, install `cwebp` (`brew install webp`) and Mandarina will use
+it. Without either, WebP simply does not appear in the wheel.
+
+Settings → **Dependencies** shows what is ready and copies the install command
+for whatever is missing. With nothing installed, images and PDFs still convert;
+only the targets that need a missing tool disappear.
 
 ## Install
 
@@ -120,7 +129,13 @@ Bump `VERSION` and tag the same number.
 | `Sources/WheelController.swift` | Panel lifetime, items per mode, applies the choice |
 | `Sources/WheelView.swift` | Draws the ring, mode pills, angle to segment |
 | `Sources/WheelModel.swift` | What each wheel offers and in what order |
-| `Sources/Convt.swift` | Bridge to the convt CLI |
+| `Sources/Engine.swift` | Routes a file and a target to the right engine |
+| `Sources/Formats.swift` | Format table and file kinds |
+| `Sources/Toolchain.swift` | Finds ffmpeg, LibreOffice and cwebp; probes encoders |
+| `Sources/ImageEngine.swift` | `sips` and ImageIO |
+| `Sources/PDFEngine.swift` | PDFKit: pages to images, text, images to PDF |
+| `Sources/FFmpegEngine.swift` | Video, audio and the image formats ImageIO cannot write |
+| `Sources/OfficeEngine.swift` | Headless LibreOffice |
 | `Sources/FileResolver.swift` | Files from the drag pasteboard, Finder selection |
 | `Sources/Settings.swift` | `UserDefaults` store and key swapping |
 | `Sources/SettingsWindowController.swift` | The settings pane |
@@ -137,8 +152,10 @@ Two details worth knowing:
 ## Known limits
 
 - Builds are not notarized: the first launch needs the Gatekeeper step above.
-- Conversions need convt installed. Without it the convert wheel says so and
-  the other wheels still work.
+- Video and documents need ffmpeg and LibreOffice. Without them those targets
+  are hidden rather than offered and failing.
+- Multi-hop routes are not implemented: a document goes to PDF, not straight to
+  PNG.
 - During a drag the panel cannot become key, so arrow keys and `Enter` only work
   in the wheel opened from the menu bar.
 - Apple silicon only.
@@ -159,9 +176,7 @@ $B --settings-check                          # key swap and scale
 ## Credits
 
 The drag, tap, drop interaction is inspired by
-[Tangerine for Mac](https://tangerineformac.com). Conversions are
-[convt](https://github.com/opencoredev/convt), AGPL-3.0. The wheel, the app and
-this repository share no code with either.
+[Tangerine for Mac](https://tangerineformac.com). No code is shared with it.
 
 ## License
 

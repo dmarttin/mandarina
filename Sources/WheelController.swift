@@ -49,8 +49,6 @@ final class WheelController {
         self.selected = 0
         self.hovered = false
 
-        Convt.loadFormatsIfNeeded()
-
         let panel = self.panel ?? makePanel()
         self.panel = panel
         guard let view = panel.contentView as? WheelView else { return }
@@ -164,38 +162,33 @@ final class WheelController {
         let targets = files
         cancel()
 
-        switch item.kind {
-        case .conversion, .tool:
-            let job = Convt.Job(files: targets, arguments: item.arguments,
-                                label: item.title, suffix: item.suffix)
-            onStatus?(item.kind == .conversion
-                ? "Converting to \(item.title)…"
-                : "Applying \(item.title)…")
-            Log.write("apply: \(item.id) \(item.arguments.joined(separator: " "))")
-            Convt.run(job) { [weak self] ok, results, output in
-                guard let self else { return }
-                let written = results.flatMap(\.files)
-                if ok {
-                    let names = written.map(\.lastPathComponent)
-                    let summary = names.count > 2
-                        ? "Saved \(names.count) files"
-                        : "Saved \(names.joined(separator: ", "))"
-                    self.onStatus?(summary)
-                    Log.write("apply: wrote \(names.joined(separator: ", "))")
-                    if Settings.shared.revealsAfterConvert {
-                        NSWorkspace.shared.activateFileViewerSelecting(written)
-                    }
-                } else {
-                    let firstError = output
-                        .split(separator: "\n")
-                        .first { $0.lowercased().contains("error") || $0.lowercased().contains("failed") }
-                        .map(String.init) ?? "Conversion failed"
-                    self.onStatus?(firstError)
-                    Log.write("apply: failed: \(output.suffix(400))")
-                }
-            }
-        case .action:
+        if item.kind == .action {
             perform(action: item.id, on: targets)
+            return
+        }
+        guard let action = item.action else { return }
+
+        onStatus?(item.kind == .conversion
+            ? "Converting to \(item.title)…"
+            : "Applying \(item.title)…")
+        Log.write("apply: \(item.id) on \(targets.count) file(s)")
+
+        Engine.run(action, suffix: item.suffix, files: targets) { [weak self] ok, written, message in
+            guard let self else { return }
+            if ok {
+                let names = written.map(\.lastPathComponent)
+                let summary = names.count > 2
+                    ? "Saved \(names.count) files"
+                    : "Saved \(names.joined(separator: ", "))"
+                self.onStatus?(summary)
+                Log.write("apply: wrote \(names.joined(separator: ", "))")
+                if Settings.shared.revealsAfterConvert {
+                    NSWorkspace.shared.activateFileViewerSelecting(written)
+                }
+            } else {
+                self.onStatus?(message)
+                Log.write("apply: failed \(message)")
+            }
         }
     }
 
@@ -299,10 +292,7 @@ final class WheelController {
     }
 
     private func subtitle(for mode: WheelMode, count: Int) -> String {
-        if count == 0 {
-            if mode == .convert, Convt.binary == nil { return "convt not found" }
-            return mode.emptyMessage
-        }
+        if count == 0 { return WheelCatalog.emptyReason(mode: mode, files: files) }
         return "\(mode.title) · \(count)"
     }
 }

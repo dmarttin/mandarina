@@ -115,6 +115,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         loginCheck = NSButton(checkboxWithTitle: "Start at login",
                               target: self, action: #selector(loginToggled(_:)))
         add(section("General", rows: [loginCheck]), to: stack)
+        add(section("Dependencies", rows: dependencyRows()), to: stack)
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -204,6 +205,54 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     @objc private func revealToggled(_ sender: NSButton) {
         Settings.shared.setRevealsAfterConvert(sender.state == .on)
     }
+
+    // MARK: - Dependencies
+
+    private func dependencyRows() -> [NSView] {
+        Toolchain.status.map { status in
+            let name = NSTextField(labelWithString: status.name)
+            name.font = .systemFont(ofSize: 13)
+            name.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+            let detail: NSTextField
+            if status.ready {
+                detail = NSTextField(labelWithString: "Ready")
+                detail.font = .systemFont(ofSize: 12)
+                detail.textColor = .secondaryLabelColor
+            } else {
+                detail = NSTextField(labelWithString: status.install)
+                detail.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+                detail.textColor = .systemOrange
+            }
+            detail.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+            var views: [NSView] = [name, detail]
+            if !status.ready {
+                let copy = NSButton(title: "Copy", target: self, action: #selector(copyInstall(_:)))
+                copy.bezelStyle = .inline
+                copy.controlSize = .small
+                copy.identifier = NSUserInterfaceItemIdentifier(status.install)
+                views.append(copy)
+            }
+
+            let row = NSStackView(views: views)
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 10
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 24).isActive = true
+            return row
+        }
+    }
+
+    @objc private func copyInstall(_ sender: NSButton) {
+        guard let command = sender.identifier?.rawValue else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(command, forType: .string)
+        sender.title = "Copied"
+    }
+
+    // MARK: - Actions
 
     @objc private func resetDefaults() {
         Settings.shared.reset()
