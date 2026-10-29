@@ -11,6 +11,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var toastCheck: NSButton!
     private var revealCheck: NSButton!
     private var loginCheck: NSButton!
+    private var updateCheckRow: NSButton!
 
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 460),
@@ -115,6 +116,26 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         loginCheck = NSButton(checkboxWithTitle: "Start at login",
                               target: self, action: #selector(loginToggled(_:)))
         add(section("General", rows: [loginCheck]), to: stack)
+
+        let updateCheck = NSButton(checkboxWithTitle: "Check for updates automatically",
+                                   target: self, action: #selector(updatesToggled(_:)))
+        updateCheck.state = Settings.shared.checksForUpdates ? .on : .off
+        updateCheckRow = updateCheck
+
+        let checkNow = NSButton(title: "Check Now", target: self, action: #selector(checkNow))
+        checkNow.bezelStyle = .rounded
+        checkNow.controlSize = .small
+        let updateSpacer = NSView()
+        updateSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let checkRow = NSStackView(views: [updateSpacer, checkNow])
+        checkRow.orientation = .horizontal
+        checkRow.spacing = 12
+
+        let version = NSTextField(labelWithString: "Version \(Updater.currentVersion)")
+        version.font = .systemFont(ofSize: 11.5)
+        version.textColor = .secondaryLabelColor
+
+        add(section("Updates", rows: [version, updateCheck, checkRow]), to: stack)
         add(section("Dependencies", rows: dependencyRows()), to: stack)
 
         let spacer = NSView()
@@ -242,6 +263,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             row.heightAnchor.constraint(greaterThanOrEqualToConstant: 24).isActive = true
             return row
         }
+    }
+
+    @objc private func updatesToggled(_ sender: NSButton) {
+        Settings.shared.setChecksForUpdates(sender.state == .on)
+    }
+
+    @objc private func checkNow() {
+        Updater.check(interactive: true)
     }
 
     @objc private func copyInstall(_ sender: NSButton) {

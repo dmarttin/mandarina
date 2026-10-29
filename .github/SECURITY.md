@@ -34,10 +34,20 @@ Out of scope:
   but tell me if Mandarina passes something to them unsafely.
 - Anything that needs an attacker who already runs code as your user.
 
+## What Mandarina does with your network
+
+- **Update checks are the only traffic.** The app asks
+  `api.github.com/repos/dmarttin/mandarina/releases/latest`, at most once every
+  six hours and only if automatic checks are on. Installing an update downloads
+  the DMG and its checksum from the same release. No telemetry, no analytics, no
+  other hosts.
+- Update traffic is refused unless it is HTTPS to GitHub. A download is
+  installed only if its SHA-256 matches the published checksum and the Ed25519
+  signature over that digest verifies against the key baked into the app.
+
 ## What Mandarina does with your files
 
-- **No network.** The app links no network framework and contains no request
-  code. Conversions run on local processes.
+- Conversions run on local processes and the files never leave the machine.
 - It runs `sips`, `ffmpeg`, `ffprobe`, `soffice` and `osascript` as child
   processes, with argument arrays and no shell.
 - It writes a log of file names to `~/Library/Logs/Mandarina.log`.
@@ -56,3 +66,8 @@ Out of scope:
   that is the usual trade-off for a converter.
 - **Rasterising is capped** at 40 megapixels and 16,384 px per side, so a
   crafted PDF or image fails with an error instead of exhausting memory.
+- **The update trust root is one Ed25519 key.** The private half lives in the
+  repository's `MANDARINA_UPDATE_KEY` secret; the public half is compiled into
+  the app. If that secret leaks, someone could sign a malicious release. If it
+  is lost, updates cannot be signed until a new key ships in a build. The
+  checksum alone is not a trust anchor, since it comes from the same release.

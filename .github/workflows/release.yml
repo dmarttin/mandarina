@@ -11,6 +11,8 @@ permissions:
 jobs:
   dmg:
     runs-on: macos-14
+    env:
+      UPDATE_KEY: ${{ secrets.MANDARINA_UPDATE_KEY }}
     steps:
       # Pinned to commit SHAs: a moved tag cannot change what runs here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -21,11 +23,27 @@ jobs:
       - name: Package DMG
         run: ./scripts/make-dmg.sh
 
+      # The app verifies this before installing anything. Without the secret
+      # the release ships checksum-only, and the updater asks before installing.
+      - name: Sign the release digest
+        if: env.UPDATE_KEY != ''
+        run: |
+          echo "$UPDATE_KEY" | base64 -d > "$RUNNER_TEMP/update-key.pem"
+          DMG=$(ls dist/*.dmg)
+          printf '%s' "$(shasum -a 256 "$DMG" | awk '{print $1}')" > "$RUNNER_TEMP/digest.txt"
+          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/update-key.pem" \
+            -in "$RUNNER_TEMP/digest.txt" -out "$RUNNER_TEMP/signature.bin"
+          base64 -i "$RUNNER_TEMP/signature.bin" -o "$DMG.sig"
+          rm -f "$RUNNER_TEMP/update-key.pem" "$RUNNER_TEMP/signature.bin"
+          echo "signed $DMG"
+
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Mandarina-dmg
-          path: dist/*.dmg
+          path: |
+            dist/*.dmg
+            dist/*.sig
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
@@ -33,5 +51,6 @@ jobs:
         with:
           files: |
             dist/*.dmg
-            dist/*.sha256
+            dist/*.dmg.sha256
+            dist/*.dmg.sig
           generate_release_notes: true

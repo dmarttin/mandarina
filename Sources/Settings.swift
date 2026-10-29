@@ -80,6 +80,7 @@ final class Settings {
         static let scale = "wheel.scale"
         static let toast = "behaviour.toast"
         static let reveal = "behaviour.reveal"
+        static let updates = "updates.auto"
     }
 
     private init() {
@@ -89,7 +90,8 @@ final class Settings {
             Key.actionsModifier: ModifierKey.control.rawValue,
             Key.scale: WheelScale.normal.rawValue,
             Key.toast: true,
-            Key.reveal: false
+            Key.reveal: false,
+            Key.updates: true
         ])
     }
 
@@ -147,6 +149,13 @@ final class Settings {
 
     func setShowsToast(_ value: Bool) {
         defaults.set(value, forKey: Key.toast)
+        announce()
+    }
+
+    var checksForUpdates: Bool { defaults.bool(forKey: Key.updates) }
+
+    func setChecksForUpdates(_ value: Bool) {
+        defaults.set(value, forKey: Key.updates)
         announce()
     }
 

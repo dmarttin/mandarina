@@ -80,6 +80,25 @@ Gatekeeper will still ask you to confirm the first launch. The checksum is the
 only proof that what you downloaded is what was built here: download only from
 this repository's Releases.
 
+## Updates
+
+Mandarina checks GitHub for a newer release shortly after launch, at most once
+every six hours, and when you pick **Check for Updates…**. It never installs
+anything without asking.
+
+When you accept, it downloads the DMG, refuses it unless the published
+`.sha256` matches and the Ed25519 signature over that digest verifies, checks
+that the app inside is the version the release claims and that its signature is
+intact, then replaces itself and reopens. If the copy fails it restores the
+previous version.
+
+Automatic checks can be turned off in Settings → Updates.
+
+Because builds are ad-hoc signed, replacing the app changes its code signature.
+The only thing macOS will ask you to grant again after an update is Automation,
+and only if you use *Show wheel for selection* from the menu bar. The drag flow
+needs nothing.
+
 ## Settings
 
 Menu bar → **Settings…**

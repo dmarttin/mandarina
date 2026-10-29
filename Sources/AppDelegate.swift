@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import ServiceManagement
 
 /// Flags for the test hooks. Real launches have none of these.
@@ -23,6 +24,18 @@ struct LaunchOptions {
             switch argument {
             case "--demo", "--simulate", "--hit", "--settings":
                 options.action = String(argument.dropFirst(2))
+                index += 1
+            case "--update-probe":
+                options.action = "updateprobe"
+                index += 1
+            case "--update-stage":
+                options.action = "updatestage"
+                index += 1
+            case "--update-swap":
+                options.action = "updateswap"
+                index += 1
+            case "--update-selftest":
+                options.action = "updateselftest"
                 index += 1
             case "--selfcheck":
                 options.action = "selfcheck"
@@ -110,6 +123,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         startMonitoring()
         registerAtLoginIfNeeded()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+            Updater.check(interactive: false)
+        }
         Log.write("launched")
     }
 
@@ -272,6 +288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show wheel for selection",
                                 action: #selector(menuShowWheel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Check for Updates…",
+                                action: #selector(menuCheckForUpdates), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings…",
                                 action: #selector(menuOpenSettings), keyEquivalent: ","))
         menu.addItem(.separator())
@@ -295,6 +313,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func menuShowWheel() {
         showWheelForSelection()
+    }
+
+    @objc private func menuCheckForUpdates() {
+        Updater.check(interactive: true)
     }
 
     @objc private func menuOpenSettings() {
@@ -327,6 +349,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "settings":
             SettingsWindowController.shared.show()
             print("settings: open")
+        case "updateprobe":
+            Updater.probe { message in
+                print("probe: \(message)")
+                exit(0)
+            }
+        case "updatestage":
+            let args = CommandLine.arguments
+            guard args.count >= 4 else { print("usage: --update-stage <dmg> <version>"); exit(2) }
+            do {
+                let staged = try Updater.stage(dmg: URL(fileURLWithPath: args[2]), expected: args[3])
+                print("staged: \(staged.path)")
+                exit(0)
+            } catch {
+                print("stage failed: \((error as? EngineError)?.message ?? error.localizedDescription)")
+                exit(1)
+            }
+        case "updateswap":
+            let args = CommandLine.arguments
+            guard args.count >= 3 else { print("usage: --update-swap <app>"); exit(2) }
+            Updater.swapAndRelaunch(staged: URL(fileURLWithPath: args[2]))
+        case "updateselftest":
+            // Proves the baked key, a release signature and a published
+            // checksum all agree, without touching the network.
+            let args = CommandLine.arguments
+            guard args.count >= 4 else {
+                print("usage: --update-selftest <dmg> <sig> [sha256-file]")
+                exit(2)
+            }
+            do {
+                let digest = try SHA256.hash(file: URL(fileURLWithPath: args[2]))
+                print("digest: \(digest)")
+                if args.count >= 5,
+                   let published = try? String(contentsOfFile: args[4], encoding: .utf8)
+                    .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "*" }).first {
+                    print("checksum: \(published.lowercased() == digest.lowercased() ? "matches" : "MISMATCH")")
+                }
+                let signature = Data(base64Encoded: try String(contentsOfFile: args[3], encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines))!
+                let key = try Curve25519.Signing.PublicKey(
+                    rawRepresentation: Data(base64Encoded: Updater.signingKey)!)
+                let valid = key.isValidSignature(signature, for: Data(digest.utf8))
+                print("signature: \(valid ? "valid" : "INVALID")")
+                exit(valid ? 0 : 1)
+            } catch {
+                print("selftest failed: \(error)")
+                exit(1)
+            }
         case "selfcheck":
             // Proves the timeout plumbing actually kills a stuck child.
             let started = Date()
