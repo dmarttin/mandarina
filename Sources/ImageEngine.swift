@@ -32,7 +32,7 @@ enum ImageEngine {
         }
         arguments += [source.path, "--out", destination.path]
 
-        let result = Toolchain.run(Toolchain.sipsPath, arguments)
+        let result = Toolchain.run(Toolchain.sipsPath, arguments, timeout: 120)
         guard result?.ok == true, FileManager.default.fileExists(atPath: destination.path) else {
             let detail = result?.stderr.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw EngineError(message: detail.isEmpty ? "sips could not write \(format)" : detail)
@@ -44,9 +44,18 @@ enum ImageEngine {
         format == "jpeg" ? "jpeg" : format
     }
 
-    /// Loads the first frame with the EXIF orientation already applied. A
-    /// photo taken sideways must not come out sideways after flattening.
-    static func orientedImage(from input: URL) -> CGImage? {
+    /// Loads the first frame with the EXIF orientation already applied, after
+    /// checking the declared size against Limits. A photo taken sideways must
+    /// not come out sideways, and a decompression bomb must not come out at all.
+    static func loadImage(_ input: URL) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithURL(input as CFURL, nil) else {
+            throw EngineError(message: "Cannot read \(input.lastPathComponent)")
+        }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        let declaredWidth = (properties[kCGImagePropertyPixelWidth] as? Int) ?? 0
+        let declaredHeight = (properties[kCGImagePropertyPixelHeight] as? Int) ?? 0
+        try Limits.validate(width: declaredWidth, height: declaredHeight)
+
         let options: [CIImageOption: Any] = [.applyOrientationProperty: true]
         if let ciImage = CIImage(contentsOf: input, options: options) {
             let context = CIContext(options: [.useSoftwareRenderer: false])
@@ -54,15 +63,15 @@ enum ImageEngine {
                 return image
             }
         }
-        guard let source = CGImageSourceCreateWithURL(input as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw EngineError(message: "Cannot decode \(input.lastPathComponent)")
+        }
+        return image
     }
 
     /// Flattens transparency onto white, for tools that need an opaque image.
     static func flattened(_ input: URL) throws -> URL {
-        guard let image = orientedImage(from: input) else {
-            throw EngineError(message: "Cannot read \(input.lastPathComponent)")
-        }
+        let image = try loadImage(input)
         let width = image.width
         let height = image.height
         guard let context = CGContext(data: nil, width: width, height: height,

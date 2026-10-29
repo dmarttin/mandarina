@@ -67,6 +67,19 @@ open /Applications/Mandarina.app
 Mandarina lives in the menu bar (hexagon icon, no Dock icon) and adds itself to
 login items on first launch.
 
+### Verify your download
+
+Every release publishes a `.sha256` next to the DMG:
+
+```sh
+shasum -a 256 -c Mandarina-<version>.dmg.sha256
+```
+
+The app and the disk image are sealed ad-hoc, but neither is notarized, so
+Gatekeeper will still ask you to confirm the first launch. The checksum is the
+only proof that what you downloaded is what was built here: download only from
+this repository's Releases.
+
 ## Settings
 
 Menu bar → **Settings…**
@@ -184,6 +197,13 @@ $B --settings-check                          # key swap and scale
 
 The drag, tap, drop interaction is inspired by
 [Tangerine for Mac](https://tangerineformac.com). No code is shared with it.
+
+## Security
+
+See [.github/SECURITY.md](.github/SECURITY.md) for what is in scope, how to
+report privately, and what the app does with your files. Short version: no
+network, no telemetry, and the only TCC permission is Automation for the menu
+bar action.
 
 ## License
 

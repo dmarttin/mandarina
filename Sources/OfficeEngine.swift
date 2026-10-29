@@ -29,7 +29,7 @@ enum OfficeEngine {
             "--outdir", output.path,
             input.path
         ]
-        let result = Toolchain.run(soffice, arguments)
+        let result = Toolchain.run(soffice, arguments, timeout: 300)
         guard let result, result.ok else {
             let detail = result?.stderr.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw EngineError(message: detail.isEmpty ? "LibreOffice failed" : String(detail.suffix(240)))

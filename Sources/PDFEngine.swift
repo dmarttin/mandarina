@@ -60,9 +60,7 @@ enum PDFEngine {
     static func imagesToPDF(_ inputs: [URL], destination: URL) throws -> URL {
         let document = PDFDocument()
         for input in inputs {
-            guard let image = ImageEngine.orientedImage(from: input) else {
-                throw EngineError(message: "Cannot read \(input.lastPathComponent)")
-            }
+            let image = try ImageEngine.loadImage(input)
             guard let page = PDFPage(image: NSImage(cgImage: image,
                                                    size: NSSize(width: image.width, height: image.height))) else {
                 throw EngineError(message: "Cannot make a page from \(input.lastPathComponent)")
@@ -83,9 +81,7 @@ enum PDFEngine {
         let scale = CGFloat(max(36, dpi)) / 72.0
         let width = Int(bounds.width * scale)
         let height = Int(bounds.height * scale)
-        guard width > 0, height > 0 else {
-            throw EngineError(message: "Empty page")
-        }
+        try Limits.validate(width: width, height: height)
         guard let context = CGContext(data: nil, width: width, height: height,
                                       bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!,

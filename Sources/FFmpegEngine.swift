@@ -222,7 +222,17 @@ enum FFmpegEngine {
         Toolchain.ffmpeg ?? URL(fileURLWithPath: "/usr/bin/false")
     }
 
-    private static let base = ["-y", "-hide_banner", "-loglevel", "error"]
+    private static let base = [
+        "-y", "-hide_banner", "-loglevel", "error",
+        // Local files only: a crafted playlist must not make ffmpeg fetch URLs.
+        "-protocol_whitelist", "file,data"
+    ]
+
+    /// Enough time for a real job, not enough to hang the wheel forever.
+    private static func budget(_ duration: Double?) -> TimeInterval {
+        guard let duration, duration > 0 else { return 1800 }
+        return max(180, duration * 8)
+    }
 
     private static func run(_ arguments: [String], expecting destination: URL,
                             duration: Double? = nil,
@@ -234,7 +244,8 @@ enum FFmpegEngine {
         if let progress, let duration, duration > 1 {
             var status: Int32 = -1
             let done = DispatchSemaphore(value: 0)
-            Toolchain.stream(ffmpeg, base + ["-progress", "pipe:1", "-nostats"] + arguments,
+            let limit = budget(duration)
+            let process = Toolchain.stream(ffmpeg, base + ["-progress", "pipe:1", "-nostats"] + arguments,
                              onLine: { line in
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 let value: String?
@@ -251,7 +262,14 @@ enum FFmpegEngine {
                 status = code
                 done.signal()
             })
+            let watchdog = DispatchWorkItem { [weak process] in
+                guard let process, process.isRunning else { return }
+                Log.write("ffmpeg: no progress within \(Int(limit))s, terminating")
+                process.terminate()
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + limit, execute: watchdog)
             done.wait()
+            watchdog.cancel()
             guard status == 0, FileManager.default.fileExists(atPath: destination.path) else {
                 throw EngineError(message: "ffmpeg failed on \(destination.lastPathComponent)")
             }
@@ -259,7 +277,7 @@ enum FFmpegEngine {
             return
         }
 
-        let result = Toolchain.run(ffmpeg, base + arguments)
+        let result = Toolchain.run(ffmpeg, base + arguments, timeout: budget(duration))
         guard result?.ok == true, FileManager.default.fileExists(atPath: destination.path) else {
             let detail = result?.stderr.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw EngineError(message: detail.isEmpty ? "ffmpeg failed" : String(detail.suffix(240)))

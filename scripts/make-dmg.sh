@@ -26,5 +26,14 @@ else
     -fs HFS+ -format UDZO -ov "$dmg" >/dev/null
 fi
 
+# Seal the image itself. Ad-hoc by default, like the app inside it.
+identity=${MANDARINA_SIGN_IDENTITY:--}
+if codesign --force --sign "$identity" --timestamp=none "$dmg" >/dev/null 2>&1; then
+  codesign --verify --strict "$dmg" || { echo "error: the disk image signature does not verify" >&2; exit 1; }
+  echo "signed disk image with identity: $identity"
+else
+  echo "warning: could not sign the disk image; the checksum is still valid" >&2
+fi
+
 (cd "$dist" && shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256")
 echo "packaged $dmg ($(du -h "$dmg" | cut -f1))"

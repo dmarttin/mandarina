@@ -24,6 +24,9 @@ struct LaunchOptions {
             case "--demo", "--simulate", "--hit", "--settings":
                 options.action = String(argument.dropFirst(2))
                 index += 1
+            case "--selfcheck":
+                options.action = "selfcheck"
+                index += 1
             case "--unregister":
                 options.action = "unregister"
                 index += 1
@@ -324,6 +327,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "settings":
             SettingsWindowController.shared.show()
             print("settings: open")
+        case "selfcheck":
+            // Proves the timeout plumbing actually kills a stuck child.
+            let started = Date()
+            let result = Toolchain.run(URL(fileURLWithPath: "/bin/sleep"), ["5"], timeout: 1)
+            let elapsed = Date().timeIntervalSince(started)
+            print(String(format: "timeout probe: %@ in %.1fs",
+                         result.map { "status \($0.status)" } ?? "nil", elapsed))
+            exit(0)
         case "unregister":
             do {
                 try SMAppService.mainApp.unregister()

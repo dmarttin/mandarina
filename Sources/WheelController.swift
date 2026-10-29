@@ -246,8 +246,8 @@ final class WheelController {
             DispatchQueue.global(qos: .userInitiated).async {
                 var produced: [URL] = []
                 for url in urls {
-                    let destination = url.deletingPathExtension()
-                        .appendingPathExtension("zip")
+                    let destination = Paths.unique(url.deletingPathExtension()
+                        .appendingPathExtension("zip"))
                     let process = Process()
                     process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
                     process.arguments = ["-c", "-k", "--sequesterRsrc",

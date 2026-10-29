@@ -200,11 +200,17 @@ enum Toolchain {
             stderr = err.fileHandleForReading.readDataToEndOfFile()
         }
 
+        var timedOut = false
         if let timeout {
             if group.wait(timeout: .now() + timeout) == .timedOut {
+                timedOut = true
+                Log.write("run \(tool.lastPathComponent): timed out after \(Int(timeout))s, terminating")
                 process.terminate()
-                Log.write("run \(tool.lastPathComponent): timed out")
-                return nil
+                // If it ignores SIGTERM, insist. A stuck converter must not pin a job.
+                if group.wait(timeout: .now() + 5) == .timedOut {
+                    kill(process.processIdentifier, SIGKILL)
+                    group.wait()
+                }
             }
         } else {
             group.wait()
@@ -214,6 +220,11 @@ enum Toolchain {
             let message = String(decoding: stderr, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             Log.write("run \(tool.lastPathComponent): exit \(process.terminationStatus) \(message.suffix(300))")
+        }
+        if timedOut {
+            return ToolResult(status: -2,
+                              stdout: String(decoding: stdout, as: UTF8.self),
+                              stderr: "Timed out after \(Int(timeout ?? 0))s")
         }
         return ToolResult(
             status: process.terminationStatus,
